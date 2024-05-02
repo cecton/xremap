@@ -21,3 +21,10 @@ pub enum Action {
     // keypress_delay_ms
     Delay(Duration),
 }
+
+impl Action {
+    pub fn new_random_delay() -> Self {
+        let duration = Duration::from_millis(fastrand::u64(40..120));
+        Self::Delay(duration)
+    }
+}

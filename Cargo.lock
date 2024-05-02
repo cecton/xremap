@@ -509,6 +509,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "fastrand"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9fc0510504f03c51ada170672ac806f1f105a88aa97a5281117e1ddc3368e51a"
+
+[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -583,7 +589,7 @@ version = "1.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49a9d51ce47660b1e808d3c990b4709f2f415d928835a17dfd16991515c46bce"
 dependencies = [
- "fastrand",
+ "fastrand 1.9.0",
  "futures-core",
  "futures-io",
  "memchr",
@@ -1902,6 +1908,7 @@ dependencies = [
  "derive-where",
  "env_logger",
  "evdev",
+ "fastrand 2.1.0",
  "fork",
  "hyprland",
  "indoc",
@@ -1931,7 +1938,7 @@ dependencies = [
  "byteorder",
  "derivative",
  "enumflags2",
- "fastrand",
+ "fastrand 1.9.0",
  "futures",
  "nb-connect",
  "nix 0.22.3",
