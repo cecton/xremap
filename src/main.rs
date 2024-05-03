@@ -13,11 +13,14 @@ use nix::libc::ENODEV;
 use nix::sys::inotify::{AddWatchFlags, Inotify, InotifyEvent};
 use nix::sys::select::select;
 use nix::sys::select::FdSet;
+use nix::sys::signal;
+use nix::sys::signalfd::{SfdFlags, SigSet, SignalFd};
 use nix::sys::timerfd::{ClockId, TimerFd, TimerFlags};
 use std::collections::HashMap;
 use std::io::stdout;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::path::PathBuf;
+use std::process::Command;
 use std::time::Duration;
 
 mod action;
@@ -27,6 +30,7 @@ mod config;
 mod device;
 mod event;
 mod event_handler;
+mod proc_cache;
 #[cfg(test)]
 mod tests;
 
@@ -54,8 +58,11 @@ struct Args {
     #[clap(long, value_enum, display_order = 100, value_name = "SHELL", verbatim_doc_comment)]
     completions: Option<Shell>,
     /// Config file(s)
+    #[clap(required_unless_present = "completions")]
+    config: Option<PathBuf>,
+    /// Command and arguments.
     #[clap(required_unless_present = "completions", num_args = 1..)]
-    configs: Vec<PathBuf>,
+    args: Vec<String>,
 }
 
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
@@ -80,8 +87,9 @@ fn main() -> anyhow::Result<()> {
         ignore: ignore_filter,
         mouse,
         watch,
-        configs,
+        config,
         completions,
+        args,
     } = Args::parse();
 
     if let Some(shell) = completions {
@@ -90,9 +98,9 @@ fn main() -> anyhow::Result<()> {
     }
 
     // Configuration
-    let config_paths = match configs[..] {
-        [] => panic!("config is set, if not completions"),
-        _ => configs,
+    let config_paths = match config {
+        None => panic!("config is set, if not completions"),
+        Some(config) => vec![config],
     };
 
     let mut config = match config::load_configs(&config_paths) {
@@ -128,10 +136,26 @@ fn main() -> anyhow::Result<()> {
     };
     let mut dispatcher = ActionDispatcher::new(output_device);
 
+    // Run child process
+    let mut child = Command::new(&args[0]).args(&args[1..]).spawn()?;
+
+    let sfd = {
+        let mut mask = SigSet::empty();
+        mask.add(signal::SIGCHLD);
+        mask.thread_block().unwrap();
+
+        SignalFd::with_flags(&mask, SfdFlags::SFD_NONBLOCK).unwrap()
+    };
+
     // Main loop
-    loop {
+    'main_loop: loop {
         match 'event_loop: loop {
-            let readable_fds = select_readable(input_devices.values(), &watchers, timer_fd)?;
+            match child.try_wait()? {
+                Some(_) => break 'main_loop,
+                None => {}
+            }
+
+            let readable_fds = select_readable(input_devices.values(), &watchers, timer_fd, &sfd)?;
             if readable_fds.contains(timer_fd) {
                 if let Err(error) =
                     handle_events(&mut handler, &mut dispatcher, &mut config, vec![Event::OverrideTimeout])
@@ -200,12 +224,15 @@ fn main() -> anyhow::Result<()> {
             }
         }
     }
+
+    Ok(())
 }
 
 fn select_readable<'a>(
     devices: impl Iterator<Item = &'a InputDevice>,
     watchers: &[&Inotify],
     timer_fd: RawFd,
+    signal_fd: &SignalFd,
 ) -> anyhow::Result<FdSet> {
     let mut read_fds = FdSet::new();
     read_fds.insert(timer_fd);
@@ -215,6 +242,7 @@ fn select_readable<'a>(
     for inotify in watchers {
         read_fds.insert(inotify.as_raw_fd());
     }
+    read_fds.insert(signal_fd.as_raw_fd());
     select(None, &mut read_fds, None, None, None)?;
     Ok(read_fds)
 }

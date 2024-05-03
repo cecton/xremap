@@ -3,7 +3,7 @@ use anyhow::bail;
 use std::env;
 use x11rb::cookie::Cookie;
 use x11rb::protocol::xproto::{self};
-use x11rb::protocol::xproto::{AtomEnum, Window};
+use x11rb::protocol::xproto::{AtomEnum, ConnectionExt, Window};
 use x11rb::rust_connection::ConnectionError;
 use x11rb::x11_utils::TryParse;
 use x11rb::{protocol::xproto::get_property, rust_connection::RustConnection};
@@ -67,6 +67,12 @@ impl Client for X11Client {
             window = get_parent_window(self, window)?;
         }
     }
+
+    fn current_pid(&mut self) -> Option<u32> {
+        self.connect();
+        let window = get_focus_window(self)?;
+        get_net_wm_pid(self, window)
+    }
 }
 
 fn get_focus_window(client: &mut X11Client) -> Option<Window> {
@@ -79,6 +85,16 @@ fn get_parent_window(client: &mut X11Client, window: Window) -> Option<Window> {
     get_cookie_reply_with_reconnect(client, |conn| xproto::query_tree(conn, window))
         .map(|reply| reply.parent)
         .ok()
+}
+
+fn get_net_wm_pid(client: &mut X11Client, window: Window) -> Option<u32> {
+    let reply = get_cookie_reply_with_reconnect(client, |conn| {
+        let net_wm_pid_atom = conn.intern_atom(false, b"_NET_WM_PID").unwrap().reply().unwrap().atom;
+        get_property(conn, false, window, net_wm_pid_atom, AtomEnum::CARDINAL, 0, 1024)
+    })
+    .ok()?;
+
+    return reply.value32().and_then(|mut x| x.next());
 }
 
 fn get_wm_class(client: &mut X11Client, window: Window) -> Option<String> {

@@ -2,6 +2,7 @@ pub trait Client {
     fn supported(&mut self) -> bool;
     fn current_application(&mut self) -> Option<String>;
     fn current_window(&mut self) -> Option<String>;
+    fn current_pid(&mut self) -> Option<u32>;
 }
 
 pub struct WMClient {
@@ -60,6 +61,19 @@ impl WMClient {
             }
         }
         result
+    }
+
+    pub fn current_pid(&mut self) -> Option<u32> {
+        if self.supported.is_none() {
+            let supported = self.client.supported();
+            self.supported = Some(supported);
+            println!("application-client: {} (supported: {})", self.name, supported);
+        }
+        if !self.supported.unwrap() {
+            return None;
+        }
+
+        self.client.current_pid()
     }
 }
 

@@ -8,6 +8,7 @@ use crate::config::modmap_action::{Keys, ModmapAction, MultiPurposeKey, PressRel
 use crate::config::remap::Remap;
 use crate::device::InputDeviceInfo;
 use crate::event::{Event, KeyEvent, RelativeEvent};
+use crate::proc_cache::ProcCache;
 use crate::{config, Config};
 use evdev::Key;
 use lazy_static::lazy_static;
@@ -54,6 +55,7 @@ pub struct EventHandler {
     keypress_delay: Duration,
     // Buffered actions to be dispatched. TODO: Just return actions from each function instead of using this.
     actions: Vec<Action>,
+    proc_cache: ProcCache,
 }
 
 struct TaggedAction {
@@ -79,6 +81,7 @@ impl EventHandler {
             escape_next_key: false,
             keypress_delay,
             actions: vec![],
+            proc_cache: ProcCache::new(),
         }
     }
 
@@ -118,6 +121,24 @@ impl EventHandler {
         self.title_cache = None; // expire cache
         let key = Key::new(event.code());
         debug!("=> {}: {:?}", event.value(), &key);
+
+        let is_child = if let Some(pid) = self.application_client.current_pid() {
+            debug!("Window PID: {pid}");
+            if self.proc_cache.is_child_or_grandchild(pid as i32) {
+                debug!("Window PID is a child of the current process");
+                true
+            } else {
+                debug!("Window PID is not a child of the current process");
+                false
+            }
+        } else {
+            debug!("Could not retrieve window PID");
+            false
+        };
+        if !is_child {
+            self.send_key(&key, event.value());
+            return Ok(true);
+        }
 
         // Apply modmap
         let mut key_values = if let Some(key_action) = self.find_modmap(config, &key, device) {

@@ -32,6 +32,7 @@ zbus = { version = "1.9.2", optional = true }
 hyprland = { version = "0.3.13", optional = true }
 toml = "0.8.12"
 fastrand = "2.1.0"
+procfs = { version = "0.16.0", default-features = false }
 
 [features]
 gnome = ["zbus"]

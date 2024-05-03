@@ -24,7 +24,7 @@ pub enum Action {
 
 impl Action {
     pub fn new_random_delay() -> Self {
-        let duration = Duration::from_millis(fastrand::u64(40..120));
+        let duration = Duration::from_millis(fastrand::u64(60..160));
         Self::Delay(duration)
     }
 }
