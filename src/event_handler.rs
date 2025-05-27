@@ -598,6 +598,8 @@ impl EventHandler {
         self.send_keys(&extra_modifiers, PRESS);
         self.send_action(Action::Delay(self.keypress_delay));
         self.send_keys(&missing_modifiers, RELEASE);
+
+        self.send_action(Action::new_random_delay());
     }
 
     fn with_mark(&self, key_press: &KeyPress) -> KeyPress {
