@@ -57,9 +57,9 @@ struct Args {
     /// - in fish: xremap --completions fish | source
     #[arg(long, value_enum, display_order = 100, value_name = "SHELL", verbatim_doc_comment)]
     completions: Option<Shell>,
-    /// Config file(s)
-    #[arg(required_unless_present = "completions", num_args = 1..)]
-    configs: Vec<PathBuf>,
+    /// Config file
+    #[arg(required_unless_present = "completions")]
+    config: Option<PathBuf>,
     #[arg(long)]
     vendor: Option<String>,
     #[arg(long)]
@@ -91,7 +91,7 @@ fn main() -> anyhow::Result<()> {
         ignore: ignore_filter,
         mouse,
         watch,
-        configs,
+        config,
         completions,
         product,
         vendor,
@@ -104,9 +104,9 @@ fn main() -> anyhow::Result<()> {
     }
 
     // Configuration
-    let config_paths = match configs[..] {
-        [] => panic!("config is set, if not completions"),
-        _ => configs,
+    let config_paths = match config {
+        None => panic!("config is set, if not completions"),
+        Some(path) => vec![path],
     };
 
     let mut config = match config::load_configs(&config_paths) {
