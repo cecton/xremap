@@ -186,6 +186,11 @@ impl Client for KdeClient {
         let aw = self.active_window.lock().ok()?;
         Some(aw.res_class.clone())
     }
+
+    fn current_pid(&mut self) -> Option<u32> {
+        // TODO not implemented
+        None
+    }
 }
 
 #[derive(Debug)]
