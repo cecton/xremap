@@ -2,7 +2,7 @@ use crate::config::application::deserialize_string_or_vec;
 use crate::config::application::OnlyOrNot;
 use crate::config::key_press::KeyPress;
 use crate::config::keymap_action::{Actions, KeymapAction};
-use evdev::Key;
+use evdev::KeyCode as Key;
 use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 
@@ -13,6 +13,7 @@ use super::key_press::Modifier;
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Keymap {
+    #[allow(dead_code)]
     #[serde(default = "String::new")]
     pub name: String,
     #[serde(deserialize_with = "deserialize_remap")]

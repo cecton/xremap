@@ -35,19 +35,19 @@ mod proc_cache;
 mod tests;
 
 #[derive(Parser, Debug)]
-#[clap(version)]
+#[command(version)]
 struct Args {
     /// Include a device name or path
-    #[clap(long, use_value_delimiter = true)]
+    #[arg(long, value_delimiter = ',')]
     device: Vec<String>,
     /// Ignore a device name or path
-    #[clap(long, use_value_delimiter = true)]
+    #[arg(long, value_delimiter = ',')]
     ignore: Vec<String>,
     /// Match mice by default
-    #[clap(long)]
+    #[arg(long)]
     mouse: bool,
     /// Targets to watch
-    #[clap(long, value_enum, num_args = 0.., use_value_delimiter = true, require_equals = true,
+    #[arg(long, value_enum, num_args = 0.., value_delimiter = ',', require_equals = true,
            default_missing_value = "device", verbatim_doc_comment)]
     watch: Vec<WatchTargets>,
     /// Generate shell completions
@@ -55,11 +55,15 @@ struct Args {
     /// You can use them by storing in your shells completion file or by running
     /// - in bash: eval "$(xremap --completions bash)"
     /// - in fish: xremap --completions fish | source
-    #[clap(long, value_enum, display_order = 100, value_name = "SHELL", verbatim_doc_comment)]
+    #[arg(long, value_enum, display_order = 100, value_name = "SHELL", verbatim_doc_comment)]
     completions: Option<Shell>,
     /// Config file(s)
-    #[clap(required_unless_present = "completions")]
-    config: Option<PathBuf>,
+    #[arg(required_unless_present = "completions", num_args = 1..)]
+    configs: Vec<PathBuf>,
+    #[arg(long)]
+    vendor: Option<String>,
+    #[arg(long)]
+    product: Option<String>,
     /// Command and arguments.
     #[clap(required_unless_present = "completions", num_args = 1..)]
     args: Vec<String>,
@@ -87,8 +91,10 @@ fn main() -> anyhow::Result<()> {
         ignore: ignore_filter,
         mouse,
         watch,
-        config,
+        configs,
         completions,
+        product,
+        vendor,
         args,
     } = Args::parse();
 
@@ -98,9 +104,9 @@ fn main() -> anyhow::Result<()> {
     }
 
     // Configuration
-    let config_paths = match config {
-        None => panic!("config is set, if not completions"),
-        Some(config) => vec![config],
+    let config_paths = match configs[..] {
+        [] => panic!("config is set, if not completions"),
+        _ => configs,
     };
 
     let mut config = match config::load_configs(&config_paths) {
@@ -130,10 +136,13 @@ fn main() -> anyhow::Result<()> {
     let config_watcher = config_watcher(watch_config, &config_paths).context("Setting up config watcher")?;
     let watchers: Vec<_> = device_watcher.iter().chain(config_watcher.iter()).collect();
     let mut handler = EventHandler::new(timer, &config.default_mode, delay, build_client());
-    let output_device = match output_device(input_devices.values().next().map(InputDevice::bus_type), mouse) {
-        Ok(output_device) => output_device,
-        Err(e) => bail!("Failed to prepare an output device: {}", e),
-    };
+    let vendor = u16::from_str_radix(vendor.unwrap_or_default().trim_start_matches("0x"), 16).unwrap_or(0x1234);
+    let product = u16::from_str_radix(product.unwrap_or_default().trim_start_matches("0x"), 16).unwrap_or(0x5678);
+    let output_device =
+        match output_device(input_devices.values().next().map(InputDevice::bus_type), config.enable_wheel, vendor, product) {
+            Ok(output_device) => output_device,
+            Err(e) => bail!("Failed to prepare an output device: {}", e),
+        };
     let mut dispatcher = ActionDispatcher::new(output_device);
 
     // Run child process
@@ -189,6 +198,7 @@ fn main() -> anyhow::Result<()> {
                         &ignore_filter,
                         mouse,
                         &config_paths,
+                        inotify,
                     )? {
                         break 'event_loop ReloadEvent::ReloadConfig;
                     }
@@ -205,21 +215,9 @@ fn main() -> anyhow::Result<()> {
                 };
             }
             ReloadEvent::ReloadConfig => {
-                match (
-                    config.modify_time,
-                    config_paths
-                        .iter()
-                        .map(|p| p.metadata().ok()?.modified().ok())
-                        .flatten()
-                        .max(),
-                ) {
-                    (Some(last_mtime), Some(current_mtim)) if last_mtime == current_mtim => continue,
-                    _ => {
-                        if let Ok(c) = load_configs(&config_paths) {
-                            println!("Reloading Config");
-                            config = c;
-                        }
-                    }
+                if let Ok(c) = load_configs(&config_paths) {
+                    println!("Reloading Config");
+                    config = c;
                 }
             }
         }
@@ -313,7 +311,18 @@ fn handle_config_changes(
     ignore_filter: &[String],
     mouse: bool,
     config_paths: &Vec<PathBuf>,
+    inotify: Inotify,
 ) -> anyhow::Result<bool> {
+    //Re-add AddWatchFlags if config file has been deleted then recreated or overwritten by renaming another file to its own name
+    for event in &events {
+        if event.mask.intersects(AddWatchFlags::IN_CREATE | AddWatchFlags::IN_MOVED_TO) {
+            for config_path in config_paths {
+                if config_path.file_name().unwrap_or_default() == event.name.clone().unwrap_or_default() {
+                    inotify.add_watch(config_path, AddWatchFlags::IN_MODIFY)?;
+                }
+            }
+        }
+    }
     for event in &events {
         match (event.mask, &event.name) {
             // Dir events

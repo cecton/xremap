@@ -1,3 +1,77 @@
+## v0.10.12
+
+- Add `{ press: }`, `{ repeat: }`, and `{ release: }` keymap actions [#678](https://github.com/xremap/xremap/pull/678)
+- Add `repeat` field for `press`/`release` modmap [#678](https://github.com/xremap/xremap/pull/678)
+
+## v0.10.11
+
+- Add mode for modmap
+  [#675](https://github.com/xremap/xremap/pull/675)
+
+## v0.10.10
+
+- Support deleting and re-adding a config with `--watch=config`
+  [#673](https://github.com/xremap/xremap/pull/673)
+
+## v0.10.9
+
+- Use an appropriate parser for secondary TOML files [#665](https://github.com/xremap/xremap/pull/665)
+- Let `--watch=config` reload the config even when the timestamp is not changed [#666](https://github.com/xremap/xremap/pull/666)
+
+## v0.10.8
+
+- Allow matching event device on udev properties with `--features udev` build
+  [#587](https://github.com/xremap/xremap/pull/587)
+
+## v0.10.7
+
+- Enable LTO in release builds [#643](https://github.com/xremap/xremap/pull/643)
+
+## v0.10.6
+
+- Add `--vendor` and `--product` options to specify xremap's uinput product / vendor IDs
+  [#583](https://github.com/xremap/xremap/pull/583)
+
+## v0.10.5
+
+- Allow matching any key with `ANY` [#575](https://github.com/xremap/xremap/pull/575)
+- Ignore absolute input devices on `--mouse` [#577](https://github.com/xremap/xremap/pull/577)
+- Detect keyboards with a mouse button by default [#550](https://github.com/xremap/xremap/pull/550)
+
+## v0.10.4
+
+- Add sleep KeymapAction [#574](https://github.com/xremap/xremap/pull/574)
+
+## v0.10.3
+
+- Allow keymap with no action [#544](https://github.com/xremap/xremap/pull/544)
+- hypr: Support window title match
+
+## v0.10.2
+
+- Resurrect `hypr` client that was dropped in v0.10.0
+  - Hyprland stopped using wlroots ([ref](https://hyprland.org/news/independentHyprland/)),
+    so `wlroots` client no longer works for it.
+
+## v0.10.1
+
+- X11: Handle WM\_CLASS reply without terminating null-byte [#525](https://github.com/xremap/xremap/pull/525)
+
+## v0.10.0
+
+- Drop `sway` and `hypr` clients [#479](https://github.com/xremap/xremap/pull/479)
+  - As recommended since v0.8.9, please use `wlroots` client instead.
+
+## v0.9.0
+
+- Add `enable_wheel` option in the config [#478](https://github.com/xremap/xremap/pull/478)
+- Enable `REL_WHEEL` and `REL_HWHEEL` by default regardless of `--mouse` option.
+  [#478](https://github.com/xremap/xremap/pull/478)
+  - This reverts v0.8.2 and v0.8.10.
+  - Arch Linux users on systemd-253-1 can continue to disable them by top-level `enable_wheel: false`.
+    See [#260](https://github.com/xremap/xremap/pull/260) for details.
+- Emit no key event instead of `KEY_UNKNOWN` on `skip_key_event` [#462](https://github.com/xremap/xremap/pull/462)
+
 ## v0.8.18
 
 - Fix issues in the release pipeline

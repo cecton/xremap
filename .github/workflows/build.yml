@@ -22,7 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         arch: [x86_64, aarch64]
-        feature: [x11, gnome, kde, sway, hypr, wlroots]
+        feature: [x11, gnome, kde, hypr, wlroots]
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
@@ -43,10 +43,34 @@ jobs:
         run: zip "xremap-linux-${{ matrix.arch }}-${{ matrix.feature }}.zip" xremap
         working-directory: target/${{ matrix.arch }}-unknown-linux-musl/release
       - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: xremap-${{ matrix.arch }}-${{ matrix.feature }}
           path: target/${{ matrix.arch }}-unknown-linux-musl/release/xremap-linux-${{ matrix.arch }}-${{ matrix.feature }}.zip
+
+  build-libc:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        feature: [udev]
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+          target: x86_64-unknown-linux-gnu
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ubuntu-latest-glibc-${{ matrix.feature }}
+
+      - name: Install libudev dependencies
+        run: sudo apt-get update && sudo apt-get -y install pkg-config libudev1 libudev-dev
+
+      - name: Build
+        run: cargo build --release --features ${{ matrix.feature }}
 
   test:
     runs-on: ubuntu-latest
@@ -78,20 +102,18 @@ jobs:
           override: true
 
       # Fetch x86_64 binary
-      - { uses: actions/download-artifact@v3, with: { name: xremap-x86_64-x11,     path: package/ } }
-      - { uses: actions/download-artifact@v3, with: { name: xremap-x86_64-gnome,   path: package/ } }
-      - { uses: actions/download-artifact@v3, with: { name: xremap-x86_64-kde,     path: package/ } }
-      - { uses: actions/download-artifact@v3, with: { name: xremap-x86_64-sway,    path: package/ } }
-      - { uses: actions/download-artifact@v3, with: { name: xremap-x86_64-hypr,    path: package/ } }
-      - { uses: actions/download-artifact@v3, with: { name: xremap-x86_64-wlroots, path: package/ } }
+      - { uses: actions/download-artifact@v4, with: { name: xremap-x86_64-x11,     path: package/ } }
+      - { uses: actions/download-artifact@v4, with: { name: xremap-x86_64-gnome,   path: package/ } }
+      - { uses: actions/download-artifact@v4, with: { name: xremap-x86_64-kde,     path: package/ } }
+      - { uses: actions/download-artifact@v4, with: { name: xremap-x86_64-hypr,    path: package/ } }
+      - { uses: actions/download-artifact@v4, with: { name: xremap-x86_64-wlroots, path: package/ } }
 
       # Fetch aarch64 binary
-      - { uses: actions/download-artifact@v3, with: { name: xremap-aarch64-x11,     path: package/ } }
-      - { uses: actions/download-artifact@v3, with: { name: xremap-aarch64-gnome,   path: package/ } }
-      - { uses: actions/download-artifact@v3, with: { name: xremap-aarch64-kde,     path: package/ } }
-      - { uses: actions/download-artifact@v3, with: { name: xremap-aarch64-sway,    path: package/ } }
-      - { uses: actions/download-artifact@v3, with: { name: xremap-aarch64-hypr,    path: package/ } }
-      - { uses: actions/download-artifact@v3, with: { name: xremap-aarch64-wlroots, path: package/ } }
+      - { uses: actions/download-artifact@v4, with: { name: xremap-aarch64-x11,     path: package/ } }
+      - { uses: actions/download-artifact@v4, with: { name: xremap-aarch64-gnome,   path: package/ } }
+      - { uses: actions/download-artifact@v4, with: { name: xremap-aarch64-kde,     path: package/ } }
+      - { uses: actions/download-artifact@v4, with: { name: xremap-aarch64-hypr,    path: package/ } }
+      - { uses: actions/download-artifact@v4, with: { name: xremap-aarch64-wlroots, path: package/ } }
 
       # Release binary
       - name: Release

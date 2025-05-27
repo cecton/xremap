@@ -1,5 +1,5 @@
 use crate::config::key::deserialize_key;
-use evdev::Key;
+use evdev::KeyCode as Key;
 use serde::{Deserialize, Deserializer};
 use serde_with::{serde_as, DurationMilliSeconds};
 use std::time::Duration;
@@ -32,10 +32,12 @@ pub struct MultiPurposeKey {
 #[derive(Clone, Debug, Deserialize)]
 pub struct PressReleaseKey {
     #[serde(default)]
-    pub skip_key_event: bool ,
-    #[serde(deserialize_with = "deserialize_actions")]
+    pub skip_key_event: bool,
+    #[serde(default, deserialize_with = "deserialize_actions")]
     pub press: Vec<KeymapAction>,
-    #[serde(deserialize_with = "deserialize_actions")]
+    #[serde(default, deserialize_with = "deserialize_actions")]
+    pub repeat: Vec<KeymapAction>,
+    #[serde(default, deserialize_with = "deserialize_actions")]
     pub release: Vec<KeymapAction>,
 }
 // Used only for deserializing Vec<Keys>

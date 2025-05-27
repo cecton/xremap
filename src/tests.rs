@@ -1,6 +1,6 @@
 use evdev::EventType;
 use evdev::InputEvent;
-use evdev::Key;
+use evdev::KeyCode as Key;
 use indoc::indoc;
 use nix::sys::timerfd::{ClockId, TimerFd, TimerFlags};
 use std::path::Path;
@@ -36,6 +36,8 @@ fn get_input_device_info<'a>() -> InputDeviceInfo<'a> {
     InputDeviceInfo {
         name: "Some Device",
         path: &Path::new("/dev/input/event0"),
+        vendor: 0x1234,
+        product: 0x5678,
     }
 }
 
@@ -123,8 +125,8 @@ fn verify_disguised_relative_events() {
     // is a bigger number than the biggest one a scancode had at the time of writing this (26 december 2022)
     assert!(0x2e7 < DISGUISED_EVENT_OFFSETTER);
     // and that it's not big enough that one of the "disguised" events's scancode would overflow.
-    // (the largest of those events is equal to DISGUISED_EVENT_OFFSETTER + 25)
-    assert!(DISGUISED_EVENT_OFFSETTER <= u16::MAX - 25)
+    // (the largest of those events is equal to DISGUISED_EVENT_OFFSETTER + 26)
+    assert!(DISGUISED_EVENT_OFFSETTER <= u16::MAX - 26)
 }
 
 #[test]
@@ -194,10 +196,11 @@ fn test_cursor_behavior_1() {
         Ok(input_devices) => input_devices,
         Err(e) => panic!("Failed to prepare input devices: {}", e),
     };
-    let mut output_device = match output_device(input_devices.values().next().map(InputDevice::bus_type), true) {
-        Ok(output_device) => output_device,
-        Err(e) => panic!("Failed to prepare an output device: {}", e),
-    };
+    let mut output_device =
+        match output_device(input_devices.values().next().map(InputDevice::bus_type), true, 0x1234, 0x5678) {
+            Ok(output_device) => output_device,
+            Err(e) => panic!("Failed to prepare an output device: {}", e),
+        };
     for input_device in input_devices.values_mut() {
         let _unused = input_device.fetch_events().unwrap();
     }
@@ -206,12 +209,12 @@ fn test_cursor_behavior_1() {
     for _ in 0..400 {
         output_device
             .emit(&[
-                InputEvent::new_now(EventType::RELATIVE, _REL_X, _POSITIVE),
+                InputEvent::new_now(EventType::RELATIVE.0, _REL_X, _POSITIVE),
                 //
                 // This line is the only difference between test_cursor_behavior_1 and test_cursor_behavior_2.
-                InputEvent::new(EventType::SYNCHRONIZATION, 0, 0),
+                InputEvent::new(EventType::SYNCHRONIZATION.0, 0, 0),
                 //
-                InputEvent::new_now(EventType::RELATIVE, _REL_Y, _NEGATIVE),
+                InputEvent::new_now(EventType::RELATIVE.0, _REL_Y, _NEGATIVE),
             ])
             .unwrap();
 
@@ -234,10 +237,11 @@ fn test_cursor_behavior_2() {
         Ok(input_devices) => input_devices,
         Err(e) => panic!("Failed to prepare input devices: {}", e),
     };
-    let mut output_device = match output_device(input_devices.values().next().map(InputDevice::bus_type), true) {
-        Ok(output_device) => output_device,
-        Err(e) => panic!("Failed to prepare an output device: {}", e),
-    };
+    let mut output_device =
+        match output_device(input_devices.values().next().map(InputDevice::bus_type), true, 0x1234, 0x5678) {
+            Ok(output_device) => output_device,
+            Err(e) => panic!("Failed to prepare an output device: {}", e),
+        };
     for input_device in input_devices.values_mut() {
         let _unused = input_device.fetch_events().unwrap();
     }
@@ -246,8 +250,8 @@ fn test_cursor_behavior_2() {
     for _ in 0..400 {
         output_device
             .emit(&[
-                InputEvent::new_now(EventType::RELATIVE, _REL_X, _POSITIVE),
-                InputEvent::new_now(EventType::RELATIVE, _REL_Y, _NEGATIVE),
+                InputEvent::new_now(EventType::RELATIVE.0, _REL_X, _POSITIVE),
+                InputEvent::new_now(EventType::RELATIVE.0, _REL_Y, _NEGATIVE),
             ])
             .unwrap();
 
@@ -497,6 +501,8 @@ fn test_device_override() {
             InputDeviceInfo {
                 name: "Some Device",
                 path: &Path::new("/dev/input/event0"),
+                vendor: 0x1234,
+                product: 0x5678,
             },
             KeyEvent::new(Key::KEY_A, KeyValue::Press),
         )],
@@ -516,6 +522,8 @@ fn test_device_override() {
             InputDeviceInfo {
                 name: "Other Device",
                 path: &Path::new("/dev/input/event1"),
+                vendor: 0x1234,
+                product: 0x5678,
             },
             KeyEvent::new(Key::KEY_A, KeyValue::Press),
         )],
@@ -647,6 +655,125 @@ fn test_merge_remaps_with_override() {
             Action::KeyEvent(KeyEvent::new(Key::KEY_LEFTCTRL, KeyValue::Release)),
         ],
     )
+}
+
+#[test]
+fn test_mixing_keypress_and_remap_in_keymap_action() {
+    // KEY_D will be emitted, and the remap will be used for next key press.
+    assert_actions(
+        indoc! {"
+        keymap:
+          - remap:
+              f12:
+                - d
+                - remap:
+                    a: b
+        "},
+        vec![
+            Event::KeyEvent(get_input_device_info(), KeyEvent::new(Key::KEY_F12, KeyValue::Press)),
+            Event::KeyEvent(get_input_device_info(), KeyEvent::new(Key::KEY_F12, KeyValue::Release)),
+            Event::KeyEvent(get_input_device_info(), KeyEvent::new(Key::KEY_A, KeyValue::Press)),
+            Event::KeyEvent(get_input_device_info(), KeyEvent::new(Key::KEY_A, KeyValue::Release)),
+        ],
+        vec![
+            Action::KeyEvent(KeyEvent::new(Key::KEY_D, KeyValue::Press)),
+            Action::KeyEvent(KeyEvent::new(Key::KEY_D, KeyValue::Release)),
+            Action::Delay(Duration::from_nanos(0)),
+            Action::Delay(Duration::from_nanos(0)),
+            Action::KeyEvent(KeyEvent::new(Key::KEY_F12, KeyValue::Release)),
+            Action::KeyEvent(KeyEvent::new(Key::KEY_B, KeyValue::Press)),
+            Action::KeyEvent(KeyEvent::new(Key::KEY_B, KeyValue::Release)),
+            Action::Delay(Duration::from_nanos(0)),
+            Action::Delay(Duration::from_nanos(0)),
+            Action::KeyEvent(KeyEvent::new(Key::KEY_A, KeyValue::Release)),
+        ],
+    )
+}
+
+#[test]
+fn test_mixing_no_keypress_and_remap_in_keymap_action() {
+    // The first match stops the search for matches. So the last remap isn't used.
+    assert_actions(
+        indoc! {"
+        keymap:
+          - remap:
+              f12: []
+          - remap:
+              f12:
+                - remap:
+                    a: b
+        "},
+        vec![
+            Event::KeyEvent(get_input_device_info(), KeyEvent::new(Key::KEY_F12, KeyValue::Press)),
+            Event::KeyEvent(get_input_device_info(), KeyEvent::new(Key::KEY_F12, KeyValue::Release)),
+            Event::KeyEvent(get_input_device_info(), KeyEvent::new(Key::KEY_A, KeyValue::Press)),
+            Event::KeyEvent(get_input_device_info(), KeyEvent::new(Key::KEY_A, KeyValue::Release)),
+        ],
+        vec![
+            Action::KeyEvent(KeyEvent::new(Key::KEY_F12, KeyValue::Release)),
+            Action::KeyEvent(KeyEvent::new(Key::KEY_A, KeyValue::Press)),
+            Action::KeyEvent(KeyEvent::new(Key::KEY_A, KeyValue::Release)),
+        ],
+    )
+}
+
+#[test]
+fn test_no_keymap_action() {
+    assert_actions(
+        indoc! {"
+        keymap:
+          - remap:
+              f12: []
+        "},
+        vec![
+            Event::KeyEvent(get_input_device_info(), KeyEvent::new(Key::KEY_F12, KeyValue::Press)),
+            Event::KeyEvent(get_input_device_info(), KeyEvent::new(Key::KEY_F12, KeyValue::Release)),
+        ],
+        vec![
+            //This is just release, so the key is not emitted.
+            Action::KeyEvent(KeyEvent::new(Key::KEY_F12, KeyValue::Release)),
+        ],
+    );
+
+    //Same test with the null keyword
+    assert_actions(
+        indoc! {"
+        keymap:
+          - remap:
+              f12: null
+        "},
+        vec![
+            Event::KeyEvent(get_input_device_info(), KeyEvent::new(Key::KEY_F12, KeyValue::Press)),
+            Event::KeyEvent(get_input_device_info(), KeyEvent::new(Key::KEY_F12, KeyValue::Release)),
+        ],
+        vec![Action::KeyEvent(KeyEvent::new(Key::KEY_F12, KeyValue::Release))],
+    )
+}
+
+#[test]
+fn test_any_key() {
+    assert_actions(
+        indoc! {"
+        keymap:
+          - remap:
+              a: b
+              ANY: null
+        "},
+        vec![
+            Event::KeyEvent(get_input_device_info(), KeyEvent::new(Key::KEY_A, KeyValue::Press)),
+            Event::KeyEvent(get_input_device_info(), KeyEvent::new(Key::KEY_A, KeyValue::Release)),
+            Event::KeyEvent(get_input_device_info(), KeyEvent::new(Key::KEY_C, KeyValue::Press)),
+            Event::KeyEvent(get_input_device_info(), KeyEvent::new(Key::KEY_C, KeyValue::Release)),
+        ],
+        vec![
+            Action::KeyEvent(KeyEvent::new(Key::KEY_B, KeyValue::Press)),
+            Action::KeyEvent(KeyEvent::new(Key::KEY_B, KeyValue::Release)),
+            Action::Delay(Duration::from_nanos(0)),
+            Action::Delay(Duration::from_nanos(0)),
+            Action::KeyEvent(KeyEvent::new(Key::KEY_A, KeyValue::Release)),
+            Action::KeyEvent(KeyEvent::new(Key::KEY_C, KeyValue::Release)),
+        ],
+    );
 }
 
 fn assert_actions(config_yaml: &str, events: Vec<Event>, actions: Vec<Action>) {

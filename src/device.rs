@@ -3,8 +3,9 @@ extern crate nix;
 
 use anyhow::bail;
 use derive_where::derive_where;
-use evdev::uinput::{VirtualDevice, VirtualDeviceBuilder};
-use evdev::{AttributeSet, BusType, Device, FetchEventsSynced, InputId, Key, RelativeAxisType};
+use evdev::uinput::VirtualDevice;
+use evdev::{AttributeSet, BusType, Device, FetchEventsSynced, InputId, KeyCode as Key, RelativeAxisCode};
+use log::debug;
 use nix::sys::inotify::{AddWatchFlags, InitFlags, Inotify};
 use std::collections::HashMap;
 use std::error::Error;
@@ -13,6 +14,12 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::prelude::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::{io, process};
+#[cfg(feature = "udev")]
+use udev::DeviceType;
+#[cfg(feature = "udev")]
+use std::fs::metadata;
+#[cfg(feature = "udev")]
+use std::os::linux::fs::MetadataExt;
 
 static MOUSE_BTNS: [&str; 20] = [
     "BTN_MISC",
@@ -40,7 +47,7 @@ static MOUSE_BTNS: [&str; 20] = [
 static mut DEVICE_NAME: Option<String> = None;
 
 // Credit: https://github.com/mooz/xkeysnail/blob/bf3c93b4fe6efd42893db4e6588e5ef1c4909cfb/xkeysnail/output.py#L10-L32
-pub fn output_device(bus_type: Option<BusType>, mouse: bool) -> Result<VirtualDevice, Box<dyn Error>> {
+pub fn output_device(bus_type: Option<BusType>, enable_wheel: bool, vendor: u16, product: u16) -> Result<VirtualDevice, Box<dyn Error>> {
     let mut keys: AttributeSet<Key> = AttributeSet::new();
     for code in Key::KEY_RESERVED.code()..Key::BTN_TRIGGER_HAPPY40.code() {
         let key = Key::new(code);
@@ -50,18 +57,18 @@ pub fn output_device(bus_type: Option<BusType>, mouse: bool) -> Result<VirtualDe
         }
     }
 
-    let mut relative_axes: AttributeSet<RelativeAxisType> = AttributeSet::new();
-    relative_axes.insert(RelativeAxisType::REL_X);
-    relative_axes.insert(RelativeAxisType::REL_Y);
-    if mouse {
-        relative_axes.insert(RelativeAxisType::REL_HWHEEL);
-        relative_axes.insert(RelativeAxisType::REL_WHEEL);
+    let mut relative_axes: AttributeSet<RelativeAxisCode> = AttributeSet::new();
+    relative_axes.insert(RelativeAxisCode::REL_X);
+    relative_axes.insert(RelativeAxisCode::REL_Y);
+    if enable_wheel {
+        relative_axes.insert(RelativeAxisCode::REL_HWHEEL);
+        relative_axes.insert(RelativeAxisCode::REL_WHEEL);
     }
-    relative_axes.insert(RelativeAxisType::REL_MISC);
+    relative_axes.insert(RelativeAxisCode::REL_MISC);
 
-    let device = VirtualDeviceBuilder::new()?
+    let device = VirtualDevice::builder()?
         // These are taken from https://docs.rs/evdev/0.12.0/src/evdev/uinput.rs.html#183-188
-        .input_id(InputId::new(bus_type.unwrap_or(BusType::BUS_USB), 0x1234, 0x5678, 0x111))
+        .input_id(InputId::new(bus_type.unwrap_or(BusType::BUS_USB), vendor, product, 0x111))
         .name(&InputDevice::current_name())
         .with_keys(&keys)?
         .with_relative_axes(&relative_axes)?
@@ -137,6 +144,8 @@ pub fn get_input_devices(
 pub struct InputDeviceInfo<'a> {
     pub name: &'a str,
     pub path: &'a Path,
+    pub product: u16,
+    pub vendor: u16,
 }
 
 impl<'a> InputDeviceInfo<'a> {
@@ -150,9 +159,48 @@ impl<'a> InputDeviceInfo<'a> {
         if filter.starts_with("event") && self.path.file_name().expect("every device path has a file name") == filter {
             return true;
         }
+        if filter.starts_with("ids:") {
+            let args = filter.split(':').collect::<Vec<&str>>();
+            if args.len() == 3 {
+                let vid = u16::from_str_radix(args[1].trim_start_matches("0x"), 16).unwrap_or(0);
+                let pid = u16::from_str_radix(args[2].trim_start_matches("0x"), 16).unwrap_or(0);
+                match (vid,pid) {
+                    (0, 0) => {},
+                    (v, 0) if v == self.vendor => { return true; },
+                    (0, p) if p == self.product => { return true; },
+                    (v, p) if v == self.vendor && p == self.product => { return true; },
+                    (_, _) => {},
+                }
+            }
+        }
         // Allow partial matches for device names
         if self.name.contains(filter) {
             return true;
+        }
+
+        #[cfg(feature = "udev")]
+        {
+        if filter.starts_with("props:") {
+            if let Ok(meta) = metadata(self.path) {
+                let args = filter.split(':').collect::<Vec<&str>>();
+                if args.len() == 3 {
+                    if let Ok(ud) = udev::Device::from_devnum(DeviceType::Character, meta.st_rdev()) {
+                        for _ in 0..10 {
+                            if ud.is_initialized() {
+                                break;
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(10));
+                        }
+                        let props = ud.properties();
+                        for p in props.filter(|p| p.name() == args[1]) {
+                            if p.value() == args[2] {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
         }
         return false;
     }
@@ -226,9 +274,19 @@ impl InputDevice {
         self.device.input_id().bus_type()
     }
 
+    pub fn product(&self) -> u16 {
+        self.device.input_id().product()
+    }
+
+    pub fn vendor(&self) -> u16 {
+        self.device.input_id().vendor()
+    }
+
     pub fn to_info(&self) -> InputDeviceInfo {
         InputDeviceInfo {
             name: self.device_name(),
+            product: self.product(),
+            vendor: self.vendor(),
             path: &self.path,
         }
     }
@@ -254,6 +312,7 @@ impl InputDevice {
         }))
     }
 
+    #[allow(static_mut_refs)]
     fn current_name() -> &'static str {
         if unsafe { DEVICE_NAME.is_none() } {
             let device_name = if Self::has_device_name("xremap") {
@@ -293,14 +352,17 @@ impl InputDevice {
                 keys.contains(Key::KEY_SPACE)
                 && keys.contains(Key::KEY_A)
                 && keys.contains(Key::KEY_Z)
-                // BTN_MOUSE
-                && !keys.contains(Key::BTN_LEFT)
             }
             None => false,
         }
     }
 
     fn is_mouse(&self) -> bool {
+        // Xremap doesn't support absolute device so will break them.
+        if self.device.supported_absolute_axes().is_some()  {
+            debug!("Ignoring absolute device {:18} {}", self.path.display(), self.device_name());
+            return false;
+        }
         self.device
             .supported_keys()
             .map_or(false, |keys| keys.contains(Key::BTN_LEFT))

@@ -6,25 +6,25 @@
 
 ## Concept
 
-* **Fast** - Xremap is written in Rust, which is faster than JIT-less interpreters like Python.
+- **Fast** - Xremap is written in Rust, which is faster than JIT-less interpreters like Python.
 
-* **Cross-platform** - Xremap uses `evdev` and `uinput`, which works whether you use X11 or Wayland.
+- **Cross-platform** - Xremap uses `evdev` and `uinput`, which works whether you use X11 or Wayland.
 
-* **Language-agnostic** - The config is JSON-compatible. Generate it from any language,
+- **Language-agnostic** - The config is JSON-compatible. Generate it from any language,
   e.g. [Ruby](https://github.com/xremap/xremap-ruby), [Python](https://github.com/xremap/xremap-python).
 
 ## Features
 
-* Remap any keys, e.g. Ctrl or CapsLock.
-* Remap any key combination to another, even to a key sequence.
-* Remap a key sequence as well. You could do something like Emacs's `C-x C-c`.
-* Remap a key to two different keys depending on whether it's pressed alone or held.
-* Application-specific remapping. Even if it's not supported by your application, xremap can.
-* Device-specific remapping.
-* Automatically remap newly connected devices by starting xremap with `--watch`.
-* Support [Emacs-like key remapping](example/emacs.yml), including the mark mode.
-* Trigger commands on key press/release events.
-* Use a non-modifier key as a virtual modifier key.
+- Remap any keys, e.g. Ctrl or CapsLock.
+- Remap any key combination to another, even to a key sequence.
+- Remap a key sequence as well. You could do something like Emacs's `C-x C-c`.
+- Remap a key to two different keys depending on whether it's pressed alone or held.
+- Application-specific remapping. Even if it's not supported by your application, xremap can.
+- Device-specific remapping.
+- Automatically remap newly connected devices by starting xremap with `--watch`.
+- Support [Emacs-like key remapping](example/emacs.yml), including the mark mode.
+- Trigger commands on key press/release events.
+- Use a non-modifier key as a virtual modifier key.
 
 ## Installation
 
@@ -37,7 +37,8 @@ and run one of the following commands:
 cargo install xremap --features x11     # X11
 cargo install xremap --features gnome   # GNOME Wayland
 cargo install xremap --features kde     # KDE-Plasma Wayland
-cargo install xremap --features wlroots # Sway, Hyprland, etc.
+cargo install xremap --features wlroots # Sway, Wayfire, etc.
+cargo install xremap --features hypr    # Hyprland
 cargo install xremap                    # Others
 ```
 
@@ -50,6 +51,10 @@ If you are on Arch Linux and X11, you can install [xremap-x11-bin](https://aur.a
 ### NixOS
 
 If you are using NixOS, xremap can be installed and configured through a [flake](https://github.com/xremap/nix-flake/).
+
+### Fedora Linux
+
+If you are using Fedora, xremap can be installed via this [Fedora Copr](https://copr.fedorainfracloud.org/coprs/blakegardner/xremap/) repository.
 
 ## Usage
 
@@ -84,10 +89,13 @@ The following can be used on Arch.
 ```bash
 lsmod | grep uinput
 ```
+
 If this module is not loaded, add to `/etc/modules-load.d/uinput.conf`:
+
 ```bash
 uinput
 ```
+
 Then add udev rule.
 
 ```bash
@@ -97,24 +105,55 @@ echo 'KERNEL=="uinput", GROUP="input", TAG+="uaccess"' | sudo tee /etc/udev/rule
 Then reboot the machine.
 
 #### Debian
+
 Make sure `uinput` is loaded same as in Arch:
+
 ```
 lsmod | grep uinput
 ```
+
 If it shows up empty:
+
 ```bash
 echo uinput | sudo tee /etc/modules-load.d/uinput.conf
 ```
+
 Add your user to the `input` group and add the same udev rule as in Ubuntu:
+
 ```bash
 sudo gpasswd -a YOUR_USER input
 echo 'KERNEL=="uinput", GROUP="input", TAG+="uaccess"' | sudo tee /etc/udev/rules.d/input.rules
 ```
+
 Reboot the machine afterwards or try:
+
 ```bash
 sudo modprobe uinput
 sudo udevadm control --reload-rules && sudo udevadm trigger
 ```
+
+#### NixOS
+
+The following can be used on NixOS.
+
+Ensure `uninput` is enabled in your `configuration.nix`:
+
+```nix
+hardward.uinput.enable = true;
+boot.kernelModules = [ "uinput" ];
+```
+
+Then add the rule to the `udev` extra rules in your `configuration.nix`:
+
+```nix
+services.udev.extraRules = ''
+  KERNEL=="uinput", GROUP="input", TAG+="uaccess"
+  '';
+```
+
+The new rule will be added to `/etc/udev/rules.d/99-local.rules`. See [NixOS documentation](https://search.nixos.org/options?channel=24.11&show=services.udev.extraRules&from=0&size=50&sort=relevance&type=packages&query=services.udev) for additional information.
+
+Rebuild with `nixos-rebuild switch`. Note you may also need to reboot your machine.
 
 #### Other platforms
 
@@ -159,6 +198,7 @@ Update `/usr/share/dbus-1/session.conf` as follows, and reboot your machine.
 Xremap cannot be run as root. Follow the instructions above to run xremap without sudo.
 
 ## Configuration
+
 Your `config.yml` should look like this:
 
 ```yml
@@ -184,7 +224,7 @@ See also: [example/config.yml](example/config.yml) and [example/emacs.yml](examp
 ### modmap
 
 `modmap` is for key-to-key remapping like xmodmap.
-Note that remapping a key to a modifier key, e.g. CapsLock to Control\_L,
+Note that remapping a key to a modifier key, e.g. CapsLock to Control_L,
 is supported only in `modmap` since `keymap` handles modifier keys differently.
 
 ```yml
@@ -193,22 +233,23 @@ modmap:
     exact_match: false # Optional, defaults to false
     remap: # Required
       # Replace a key with another
-      KEY_XXX: KEY_YYY # Required
+      KEY_XXX1: KEY_YYY # Required
       # Dispatch different keys depending on whether you hold it or press it alone
-      KEY_XXX:
+      KEY_XXX2:
         held: KEY_YYY # Required, also accepts arrays
         alone: KEY_ZZZ # Required, also accepts arrays
         alone_timeout_millis: 1000 # Optional
       # Hook `keymap` action on key press/release events.
-      KEY_XXX:
-        skip_key_event: false # Optional, skip original key event ,defaults to false
-        press: { launch: ["xdotool", "mousemove", "0", "7200"] } # Required
-        release: { launch: ["xdotool", "mousemove", "0", "0"] } # Required
+      KEY_XXX3:
+        skip_key_event: true # Optional, skip original key event, defaults to false
+        press: [{ press: KEY_YYY }, { launch: ["xdotool", "mousemove", "0", "7200"] }] # Optional
+        repeat: { repeat: KEY_YYY } # Optional
+        release: [{ release: KEY_YYY }, { set_mode: my_mode }] # Optional
     application: # Optional
       not: [Application, ...]
       # or
       only: [Application, ...]
-    window: # Optional (only wlroots/kde clients supported)
+    window: # Optional (only hyprland/wlroots/kde clients supported)
       not: [/regex of window title/, ...]
       # or
       only: [/regex of window title/, ...]
@@ -216,6 +257,10 @@ modmap:
       not: [Device, ...]
       # or
       only: [Device, ...]
+    mode: default # Optional
+    # or
+    mode: [ default, my_mode ]
+default_mode: default # Optional
 ```
 
 For `KEY_XXX` and `KEY_YYY`, use [these names](https://github.com/emberian/evdev/blob/1d020f11b283b0648427a2844b6b980f1a268221/src/scancodes.rs#L26-L572).
@@ -223,11 +268,13 @@ You can skip `KEY_` and the name is case-insensitive. So `KEY_CAPSLOCK`, `CAPSLO
 Some [custom aliases](src/config/key.rs) like `SHIFT_R`, `CONTROL_L`, etc. are provided.
 
 In case you don't know the name of a key, you can find out by enabling the xremap debug output:
+
 ```bash
 RUST_LOG=debug xremap config.yml
 # or
 sudo RUST_LOG=debug xremap config.yml
 ```
+
 Then press the key you want to know the name of.
 
 If you specify a map containing `held` and `alone`, you can use the key for two purposes.
@@ -243,30 +290,37 @@ keymap:
   - name: Name # Optional
     remap: # Required
       # Key press -> Key press
-      MOD1-KEY_XXX: MOD2-KEY_YYY
-      # Sequence (MOD1-KEY_XXX, MOD2-KEY_YYY) -> Key press (MOD3-KEY_ZZZ)
-      MOD1-KEY_XXX:
+      MOD1-KEY_XXX1: MOD2-KEY_YYY
+      # Sequence (MOD1-KEY_XXX2, MOD2-KEY_YYY) -> Key press (MOD3-KEY_ZZZ)
+      MOD1-KEY_XXX2:
         remap:
           MOD2-KEY_YYY: MOD3-KEY_ZZZ
         timeout_millis: 200 # Optional. No timeout by default.
-      # Key press (MOD1-KEY_XXX) -> Sequence (MOD2-KEY_YYY, MOD3-KEY_ZZZ)
-      MOD1-KEY_XXX: [MOD2-KEY_YYY, MOD3-KEY_ZZZ]
+      # Key press (MOD1-KEY_XXX3) -> Sequence (MOD2-KEY_YYY, MOD3-KEY_ZZZ)
+      MOD1-KEY_XXX3: [MOD2-KEY_YYY, MOD3-KEY_ZZZ]
       # Execute a command
-      MOD1-KEY_XXX:
+      MOD1-KEY_XXX4:
         launch: ["bash", "-c", "echo hello > /tmp/test"]
       # Let `with_mark` also press a Shift key (useful for Emacs emulation)
-      MOD1-KEY_XXX: { set_mark: true } # use { set_mark: false } to disable it
+      MOD1-KEY_XXX5: { set_mark: true } # use { set_mark: false } to disable it
       # Also press Shift only when { set_mark: true } is used before
-      MOD1-KEY_XXX: { with_mark: MOD2-KEY_YYY }
-      # The next key press will ignore keymap
-      MOD1-KEY_XXX: { escape_next_key: true }
+      MOD1-KEY_XXX6: { with_mark: MOD2-KEY_YYY }
+      # After pressing MOD1-KEY_XXX7, the next key press will ignore keymap
+      MOD1-KEY_XXX7: { escape_next_key: true }
       # Set mode to configure Vim-like modal remapping
-      MOD1-KEY_XXX: { set_mode: default }
+      MOD1-KEY_XXX8: { set_mode: default }
+      # Illustrate a nested mapping that times out;
+      # also useful for timing out double-key sequences if the second key is never pressed.
+      space:  # Use timeout to fix a bouncy spacebar
+        remap:
+          space: null          # make space output nothing; null is equivalent to []
+          timeout_key: space   # output space after timeout or a non-mapped key (only space is mapped above)
+          timeout_millis: 150  # timeout duration in ms
     application: # Optional
       not: [Application, ...]
       # or
       only: [Application, ...]
-    window: # Optional (only wlroots/kde clients supported)
+    window: # Optional (only hyprland/wlroots/kde clients supported)
       not: [/regex of window title/, ...]
       # or
       only: [/regex of window title/, ...]
@@ -275,6 +329,8 @@ keymap:
       # or
       only: [Device, ...]
     mode: default # Optional
+    # or
+    mode: [ default, my_mode ]
 default_mode: default # Optional
 ```
 
@@ -283,10 +339,10 @@ You can skip `KEY_` and the name is case-insensitive. So `KEY_CAPSLOCK`, `CAPSLO
 
 For the `MOD1-` part, the following prefixes can be used (also case-insensitive):
 
-* Shift: `SHIFT-`
-* Control: `C-`, `CTRL-`, `CONTROL-`
-* Alt: `M-`, `ALT-`
-* Windows: `SUPER-`, `WIN-`, `WINDOWS-`
+- Shift: `SHIFT-`
+- Control: `C-`, `CTRL-`, `CONTROL-`
+- Alt: `M-`, `ALT-`
+- Windows: `SUPER-`, `WIN-`, `WINDOWS-`
 
 You can use multiple prefixes like `C-M-Shift-a`.
 You may also suffix them with `_L` or `_R` (case-insensitive) so that
@@ -334,13 +390,15 @@ or just the last segment after `.` (`Slack`, `Code`).
 #### GNOME Wayland
 
 Use the following command or check windows' WMClass by pressing Alt+F2 and running `lg` command in [LookingGlass](https://wiki.gnome.org/Projects/GnomeShell/LookingGlass):
+
 ```
 busctl --user call org.gnome.Shell /com/k0kubun/Xremap com.k0kubun.Xremap WMClasses
 ```
+
 #### KDE-Plasma Wayland
 
-Xremap prints the active window to the console. 
-However, it will only start printing, once a mapping has been triggered that uses an application filter. 
+Xremap prints the active window to the console.
+However, it will only start printing, once a mapping has been triggered that uses an application filter.
 So you have to create a mapping with a filter using a dummy application name and trigger it.
 Then each time you switch to a new window xremap will print its caption, class, and name in the following style:
 `active window: caption: '<caption>', class: '<class>', name: '<name>'`
@@ -379,6 +437,7 @@ Note how Alt-f and Alt-b work in all apps, but the definition of Alt-f is slight
 ### device
 
 Much like [`application`](#application), you may specify `{keymap,modmap}.device.{not,only}` in your configuration for device-specific remapping. Consistent with the global `--device` flag, device-matching strings may be any of:
+
 - the full path of the device
 - the filename of the device
 - the device name
@@ -400,8 +459,49 @@ device:
 
 Unlike for `application`, regexs are not supported for `device`.
 
+### mode
 
-### virtual\_modifiers
+You can assign mode(s) to keymap and/or remap which effectively turns them on or off
+when you set the mode.
+
+```yml
+modmap:
+  - name: Up
+    remap:
+      W: UP
+    mode: [Up, Up_And_Down] # Mode is optional
+
+  - name: Down
+    remap:
+      S: DOWN
+    mode: [Down, Up_And_Down]
+
+  - name: Right_And_Left
+    remap:
+      D: RIGHT
+      A: LEFT
+    mode: Right_And_Left # Mode can be a string or vector of strings
+
+  - name: Turn Off
+    remap:
+      L:
+        press: { set_mode: Off } # Modmap can set mode via press and release
+        release:
+    # If mode is absent the keymap or modmap is always on
+
+keymap:
+  - name: SetMode
+    remap:
+      CTRL-U: { set_mode: Up }
+      CTRL-I: { set_mode: Down }
+      CTRL-O: { set_mode: Up_And_Down }
+      CTRL-P: { set_mode: Right_And_Left }
+    mode: [Up, Down, Right_And_Left, Up_And_Down, Off] # You can assign modes to keymap too!
+
+default_mode: Up_And_Down # Optional, if absent default mode is "default"
+```
+
+### virtual_modifiers
 
 You can declare keys that should act like a modifier.
 
@@ -420,7 +520,6 @@ keymap:
 
 Some applications have trouble understanding synthesized key events, especially on
 Wayland. `keypress_delay_ms` can be used to workaround the issue.
-See [#179](https://github.com/k0kubun/xremap/issues/179) for the detail.
 
 ### Shared data field
 
@@ -429,21 +528,50 @@ This can be usefull when using Anchors and Aliases.
 For more information about the use of Yaml anchors see the [Yaml specification](https://yaml.org/spec/1.2.2/#3222-anchors-and-aliases).
 
 #### example:
+
 ```yaml
 shared:
   terminals: &terminals # The & Symbol marks this entry as a Anchor
     - Gnome-terminal
     - Kitty
-  
+
   some_remaps: &some_remaps
     Ctrl-f: C-right
     Alt-b: C-up
 
 keymap:
   - application:
-      only: *terminals  # we can reuse the list here
+      only: *terminals # we can reuse the list here
     remap: *some_remaps # and we can reuse a map here.
 ```
+
+## Running xremap as a daemon
+
+Put your config file at `~/.config/xremap/config.yml` and
+copy `example/xremap.service` to `~/.config/systemd/user/xremap.service`.
+
+```bash
+cp example/xremap.service ~/.config/systemd/user/xremap.service
+```
+
+> [!WARNING]
+> make sure `xremap` installaion path matches `xremap.service` path
+
+then run
+
+```bash
+systemctl --user start xremap.service
+```
+
+To start the service on boot, `systemctl --user enable xremap.service` may sometimes work.
+However, it may fail to recognize the window manager if you start xremap too early.
+Consider copying `example/xremap.desktop` to `~/.config/autostart/xremap.desktop` if the platform supports it.
+
+## Maintainers
+
+- @k0kubun
+- @N4tus (KDE client)
+- @jixiuf (wlroots client)
 
 ## License
 

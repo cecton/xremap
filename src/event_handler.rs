@@ -10,7 +10,7 @@ use crate::device::InputDeviceInfo;
 use crate::event::{Event, KeyEvent, RelativeEvent};
 use crate::proc_cache::ProcCache;
 use crate::{config, Config};
-use evdev::Key;
+use evdev::KeyCode as Key;
 use lazy_static::lazy_static;
 use log::debug;
 use nix::sys::time::TimeSpec;
@@ -25,6 +25,10 @@ use std::time::{Duration, Instant};
 // This offset also prevents resulting scancodes from corresponding to non-Xremap scancodes,
 // to prevent conflating disguised relative events with other events.
 pub const DISGUISED_EVENT_OFFSETTER: u16 = 59974;
+
+// This const is defined a keycode for a configuration key used to match any key.
+// It's the offset of XHIRES_LEFTSCROLL + 1
+pub const KEY_MATCH_ANY: Key = Key(DISGUISED_EVENT_OFFSETTER + 26);
 
 pub struct EventHandler {
     // Currently pressed modifier keys
@@ -164,6 +168,9 @@ impl EventHandler {
                     self.escape_next_key = false
                 } else if let Some(actions) = self.find_keymap(config, &key, device)? {
                     self.dispatch_actions(&actions, &key)?;
+                    continue;
+                } else if let Some(actions) = self.find_keymap(config, &KEY_MATCH_ANY, device)? {
+                    self.dispatch_actions(&actions, &KEY_MATCH_ANY)?;
                     continue;
                 }
             }
@@ -356,26 +363,25 @@ impl EventHandler {
             ModmapAction::PressReleaseKey(PressReleaseKey {
                 skip_key_event,
                 press,
+                repeat,
                 release,
             }) => {
                 // Just hook actions, and then emit the original event. We might want to
                 // support reordering the key event and dispatched actions later.
-                if value == PRESS || value == RELEASE {
-                    self.dispatch_actions(
-                        &(if value == PRESS { press } else { release })
-                            .into_iter()
-                            .map(|action| TaggedAction {
-                                action,
-                                exact_match: false,
-                            })
-                            .collect(),
-                        &key,
-                    )?;
-                }
+                self.dispatch_actions(
+                    &(if value == PRESS { press } else if value == RELEASE { release } else { repeat })
+                        .into_iter()
+                        .map(|action| TaggedAction {
+                            action,
+                            exact_match: false,
+                        })
+                        .collect(),
+                    &key,
+                )?;                
 
                 if skip_key_event {
                     // Do not dispatch the original key
-                    vec![(Key::KEY_UNKNOWN, value)]
+                    vec![]
                 } else {
                     // dispatch the original key
                     vec![(key, value)]
@@ -421,6 +427,11 @@ impl EventHandler {
                 }
                 if let Some(device_matcher) = &modmap.device {
                     if !self.match_device(device_matcher, device) {
+                        continue;
+                    }
+                }
+                if let Some(modes) = &modmap.mode {
+                    if !modes.contains(&self.mode) {
                         continue;
                     }
                 }
@@ -536,7 +547,10 @@ impl EventHandler {
 
     fn dispatch_action(&mut self, action: &TaggedAction, key: &Key) -> Result<(), Box<dyn Error>> {
         match &action.action {
-            KeymapAction::KeyPress(key_press) => self.send_key_press(key_press),
+            KeymapAction::KeyPressAndRelease(key_press) => self.send_key_press_and_release(key_press),
+            KeymapAction::KeyPress(key) => self.send_key(key, PRESS),
+            KeymapAction::KeyRepeat(key) => self.send_key(key, REPEAT),
+            KeymapAction::KeyRelease(key) => self.send_key(key, RELEASE),
             KeymapAction::Remap(Remap {
                 remap,
                 timeout,
@@ -564,8 +578,9 @@ impl EventHandler {
                 println!("mode: {}", mode);
             }
             KeymapAction::SetMark(set) => self.mark_set = *set,
-            KeymapAction::WithMark(key_press) => self.send_key_press(&self.with_mark(key_press)),
+            KeymapAction::WithMark(key_press) => self.send_key_press_and_release(&self.with_mark(key_press)),
             KeymapAction::EscapeNextKey(escape_next_key) => self.escape_next_key = *escape_next_key,
+            KeymapAction::Sleep(millis) => self.send_action(Action::Delay(Duration::from_millis(*millis))),
             KeymapAction::SetExtraModifiers(keys) => {
                 self.extra_modifiers.clear();
                 for key in keys {
@@ -576,7 +591,7 @@ impl EventHandler {
         Ok(())
     }
 
-    fn send_key_press(&mut self, key_press: &KeyPress) {
+    fn send_key_press_and_release(&mut self, key_press: &KeyPress) {
         // Build extra or missing modifiers. Note that only MODIFIER_KEYS are handled
         // because logical modifiers shouldn't make an impact outside xremap.
         let (mut extra_modifiers, mut missing_modifiers) = self.diff_modifiers(&key_press.modifiers);
@@ -721,6 +736,16 @@ impl EventHandler {
 }
 
 fn is_remap(actions: &Vec<KeymapAction>) -> bool {
+    if actions.len() == 0 {
+        // When actions is empty it could either be regarded as an empty remap
+        //  or no actions. In principle that shouldn't matter, but remap is
+        //  implemented to gather all defined remaps, not just the first match.
+        // Here we regard an empty actions as non-remap, so the matching will stop
+        //  here, and no actions are performed. The possibly following remaps are
+        //  hence ignored.
+        return false;
+    }
+
     actions.iter().all(|x| match x {
         KeymapAction::Remap(..) => true,
         _ => false,
